@@ -19,6 +19,9 @@ class SodokuGenerator:
 
                 board.set_cell(col, row, num)
 
+    def fill(self, board: SodokuBoard):
+        pass
+
     def generate_solution(self):
         board = SodokuBoard([[0] * 9 for _ in range(9)])
 
