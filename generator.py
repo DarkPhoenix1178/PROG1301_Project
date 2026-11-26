@@ -67,6 +67,16 @@ class SodokuGenerator:
                 board.set_cell(col, row, value)
         return remaining
 
+    def generate_puzzle(self, difficulty="medium"):
+        low, high = DIFFICULTY_CLUES[difficulty]
+        target = self.rng.randint(low, high)
+
+        board = self.generate_solution()
+
+        self.remove_clues(board, target)
+
+        return board
+
     @staticmethod
     def has_unique_solution(board: SodokuBoard):
         solver = DancingLinks(board)

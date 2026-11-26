@@ -56,14 +56,12 @@ def main():
     # game2 = Sodoku(expert_puzzle).run()
 
     generator = SodokuGenerator()
+    puzzle = generator.generate_puzzle("hard")
 
-    board = generator.generate_solution()
+    print("\n".join(map(str, puzzle.board)))
 
-    remaining = generator.remove_clues(board, 30)
-
-    print("\n".join(map(str, board.board)))
-    print(f"Remaining clues: {remaining}")
-    print(f"Unique: {generator.has_unique_solution(board)}")
+    clues = sum(num != 0 for row in puzzle.board for num in row)
+    print(f"Remaining clues: {clues}")
 
 
 if __name__ == "__main__":
