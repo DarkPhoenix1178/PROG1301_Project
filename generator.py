@@ -1,6 +1,7 @@
 import random
 
 from board import SodokuBoard
+from settings import DIFFICULTY_CLUES
 from knuth import DancingLinks
 
 
@@ -43,11 +44,35 @@ class SodokuGenerator:
         board = SodokuBoard([[0] * 9 for _ in range(9)])
 
         self.fill_diagonal(board)
-        print("\n".join(map(str, board.board)))
         self.fill_board(board)
-        print()
-        print("\n".join(map(str, board.board)))
 
-        return board.board
+        return board
+
+    def remove_clues(self, board: SodokuBoard, target):
+        cells = [(col, row) for row in range(9) for col in range(9)]
+
+        self.rng.shuffle(cells)
+        remaining = 81
+
+        for col, row in cells:
+            if remaining == target:
+                break
+
+            value = board.get_cell(col, row)
+            board.set_cell(col, row, 0)
+
+            if self.has_unique_solution(board):
+                remaining -= 1
+            else:
+                board.set_cell(col, row, value)
+        return remaining
+
+    @staticmethod
+    def has_unique_solution(board: SodokuBoard):
+        solver = DancingLinks(board)
+        count, _, _ = solver.search_n_solutions(limit=2)
+
+        return count == 1
+
 
 

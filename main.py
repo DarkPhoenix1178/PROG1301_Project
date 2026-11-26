@@ -50,9 +50,20 @@ def main():
         [0, 5, 0, 1, 0, 0, 0, 0, 0],
         [0, 0, 0, 8, 0, 6, 0, 0, 0],
     ]
-    Sodoku(SodokuGenerator().generate_solution()).run()
-    game = Sodoku(hard_puzzle).run()
-    game2 = Sodoku(expert_puzzle).run()
+
+    # Sodoku(SodokuGenerator().generate_solution()).run()
+    # game = Sodoku(hard_puzzle).run()
+    # game2 = Sodoku(expert_puzzle).run()
+
+    generator = SodokuGenerator()
+
+    board = generator.generate_solution()
+
+    remaining = generator.remove_clues(board, 30)
+
+    print("\n".join(map(str, board.board)))
+    print(f"Remaining clues: {remaining}")
+    print(f"Unique: {generator.has_unique_solution(board)}")
 
 
 if __name__ == "__main__":

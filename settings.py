@@ -15,3 +15,10 @@ SELECT = pg.Color(187, 222, 251)
 CROSSHAIR = pg.Color(226, 235, 243)
 SIMILAR = pg.Color(195, 215, 235)
 BACKGROUND = pg.Color(255, 255, 255)
+
+DIFFICULTY_CLUES = {
+    "easy": (40, 45),
+    "medium": (32, 39),
+    "hard": (26, 31),
+    "expert": (22, 25),
+}
