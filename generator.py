@@ -1,7 +1,13 @@
+import copy
 import random
 
 from board import SodokuBoard
-from settings import DIFFICULTY_CLUES
+from settings import (
+    DIFFICULTY_CLUES,
+    MIN_CLUES,
+    MAX_GENERATION_ATTEMPTS,
+    FALLBACK_PUZZLES,
+)
 from knuth import DancingLinks
 
 
@@ -36,7 +42,7 @@ class SodokuGenerator:
                         if self.fill_board(board):
                             return True
 
-                    board.set_cell(col, row, 0)
+                        board.set_cell(col, row, 0)
                 return False
         return True
 
@@ -44,9 +50,11 @@ class SodokuGenerator:
         board = SodokuBoard([[0] * 9 for _ in range(9)])
 
         self.fill_diagonal(board)
-        self.fill_board(board)
 
-        return board
+        if self.fill_board(board):
+            return SodokuBoard(board.board)
+
+        return self.fallback_puzzle(81)
 
     def remove_clues(self, board: SodokuBoard, target):
         cells = [(col, row) for row in range(9) for col in range(9)]
@@ -72,20 +80,98 @@ class SodokuGenerator:
         target = self.rng.randint(low, high)
 
         best_board = None
-        best_remaining = 81
+        best_remaining = 82
 
-        for _ in range(5):
+        for _ in range(MAX_GENERATION_ATTEMPTS):
             board = self.generate_solution()
             remaining = self.remove_clues(board, target)
 
             if remaining == target:
-                return board
+                return SodokuBoard(board.board)
 
             if remaining < best_remaining:
                 best_board = board
                 best_remaining = remaining
 
-        return best_board
+        if low <= best_remaining <= high:
+            return SodokuBoard(best_board.board)
+
+        return self.fallback_puzzle(target)
+
+    def randomize_puzzle(self, puzzle):
+        # Remap the digits
+        digits = list(range(1, 10))
+        self.rng.shuffle(digits)
+        mapping = [0] + digits
+
+        puzzle = [
+            [mapping[num] for num in row]
+            for row in puzzle
+        ]
+
+        # Shuffle rows within each band
+        for i in range(0, 9, 3):
+            rows = puzzle[i:i + 3]
+            self.rng.shuffle(rows)
+            puzzle[i:i + 3] = rows
+
+        # Shuffle columns within each stack
+        for i in range(0, 9, 3):
+            cols = list(range(i, i + 3))
+            self.rng.shuffle(cols)
+
+            for row in puzzle:
+                row[i:i + 3] = [row[col] for col in cols]
+
+        # Shuffle entire bands and stacks
+        bands = [0, 1, 2]
+        stacks = [0, 1, 2]
+
+        self.rng.shuffle(bands)
+        self.rng.shuffle(stacks)
+
+        puzzle = [
+            puzzle[band * 3 + i]
+            for band in bands
+            for i in range(3)
+        ]
+
+        puzzle = [
+            [row[stack * 3 + i]
+             for stack in stacks
+             for i in range(3)]
+            for row in puzzle
+        ]
+
+        # Randomly transpose the matrix
+        if self.rng.choice([True, False]):
+            puzzle = [list(row) for row in zip(*puzzle)]
+
+        # Randomly reflect vertically
+        if self.rng.choice([True, False]):
+            puzzle.reverse()
+
+        # Randomly reflect horizontally
+        if self.rng.choice([True, False]):
+            for row in puzzle:
+                row.reverse()
+
+        return puzzle
+
+    def fallback_puzzle(self, target):
+        puzzle = copy.deepcopy(self.rng.choice(FALLBACK_PUZZLES))
+
+        solver = DancingLinks(SodokuBoard(puzzle))
+        solution, _, _ = solver.search_solution()
+
+        self.rng.shuffle(solution)
+
+        for col, row, num in solution[:target - MIN_CLUES]:
+            puzzle[row][col] = num
+
+        puzzle = self.randomize_puzzle(puzzle)
+
+        return SodokuBoard(puzzle)
 
     @staticmethod
     def has_unique_solution(board: SodokuBoard):
