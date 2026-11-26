@@ -52,7 +52,6 @@ def main():
     ]
 
     # Sodoku(SodokuGenerator().generate_solution()).run()
-    game = Sodoku(hard_puzzle).run()
     # game2 = Sodoku(expert_puzzle).run()
 
     generator = SodokuGenerator()
@@ -64,6 +63,9 @@ def main():
 
     print(f"Clues: {clues}")
     print(f"Unique: {generator.has_unique_solution(board)}")
+
+    game = Sodoku(board.board).run()
+
 
 if __name__ == "__main__":
     main()
