@@ -36,7 +36,8 @@ class SodokuGenerator:
                             return True
 
                     board.set_cell(col, row, 0)
-            return False
+                return False
+        return True
 
     def generate_solution(self):
         board = SodokuBoard([[0] * 9 for _ in range(9)])
@@ -46,5 +47,7 @@ class SodokuGenerator:
         self.fill_board(board)
         print()
         print("\n".join(map(str, board.board)))
+
+        return board.board
 
 
