@@ -1,4 +1,5 @@
 from game import Sodoku
+from generator import SodokuGenerator
 
 
 def main():
@@ -49,6 +50,7 @@ def main():
         [0, 5, 0, 1, 0, 0, 0, 0, 0],
         [0, 0, 0, 8, 0, 6, 0, 0, 0],
     ]
+    SodokuGenerator().generate_solution()
     game = Sodoku(hard_puzzle).run()
     game2 = Sodoku(expert_puzzle).run()
 
