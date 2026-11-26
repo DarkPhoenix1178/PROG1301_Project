@@ -2,7 +2,7 @@ import pygame as pg
 
 from board import SodokuBoard
 from settings import SCREEN_HEIGHT, SCREEN_WIDTH, MARGIN, BOARD_BORDER, \
-    BACKGROUND, CROSSHAIR, SELECT, SIMILAR, GIVEN, INPUT, BORDER
+    BACKGROUND, CROSSHAIR, SELECT, SIMILAR, GIVEN, INPUT, BORDER, ERROR
 
 
 class SodokuRenderer:
@@ -41,6 +41,7 @@ class SodokuRenderer:
         v_top_left = pg.Vector2(self.offset,
                                 (row * self.cell_size) + self.offset)
         v_size = pg.Vector2(self.board_length - MARGIN, self.cell_size)
+
         pg.draw.rect(surface=self.screen,
                      color=CROSSHAIR,
                      rect=pg.Rect(v_top_left, v_size))
@@ -50,12 +51,14 @@ class SodokuRenderer:
         b_top_left = pg.Vector2((box_col * self.box_size) + self.offset,
                                 (box_row * self.box_size) + self.offset)
         b_size = pg.Vector2(self.box_size, self.box_size)
+
         pg.draw.rect(surface=self.screen,
                      color=CROSSHAIR,
                      rect=pg.Rect(b_top_left, b_size))
 
     def draw_active_cell(self):
         col, row = self.board.get_active_cell()
+
         pg.draw.rect(surface=self.screen,
                      color=SELECT,
                      rect=pg.Rect((col * self.cell_size) + self.offset,
@@ -134,7 +137,52 @@ class SodokuRenderer:
                                            (row + 0.5) * self.cell_size)
                 self.screen.blit(text, text_location)
 
-    def draw(self):
+    def get_board_coordinates(self, pos):
+        col = (pos[0] - self.offset) // self.cell_size
+        row = (pos[1] - self.offset) // self.cell_size
+        return col, row
+
+    def find_conflicts(self):
+        groups = []
+
+        # Rows and columns
+        for i in range(9):
+            groups.append([(col, i) for col in range(9)])
+            groups.append([(i, row) for row in range(9)])
+
+        # Boxes
+        for box_row in range(3):
+            for box_col in range(3):
+                groups.append([(box_col * 3 + c, box_row * 3 + r)
+                               for r in range(3) for c in range(3)])
+
+        conflicts = set()
+
+        for group in groups:
+            seen = {}
+
+            for col, row in group:
+                value = self.board.get_cell(col, row)
+
+                if value != 0:
+                    seen.setdefault(value, []).append((col, row))
+
+            for cells in seen.values():
+                if len(cells) > 1:
+                    conflicts.update(cells)
+
+        return conflicts
+
+    def draw_conflicts(self):
+        for col, row in self.find_conflicts():
+            pg.draw.rect(surface=self.screen,
+                         color=ERROR,
+                         rect=pg.Rect((col * self.cell_size) + self.offset,
+                                      (row * self.cell_size) + self.offset,
+                                      self.cell_size,
+                                      self.cell_size))
+
+    def draw(self, flag_conflicts=True):
         self.screen.fill(BACKGROUND)
 
         if self.board.cell_active():
@@ -142,10 +190,8 @@ class SodokuRenderer:
             self.draw_matching_numbers()
             self.draw_active_cell()
 
+        if flag_conflicts:
+            self.draw_conflicts()
+
         self.draw_board()
         self.draw_numbers()
-
-    def get_board_coordinates(self, pos):
-        col = (pos[0] - self.offset) // self.cell_size
-        row = (pos[1] - self.offset) // self.cell_size
-        return col, row
