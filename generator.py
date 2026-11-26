@@ -71,11 +71,21 @@ class SodokuGenerator:
         low, high = DIFFICULTY_CLUES[difficulty]
         target = self.rng.randint(low, high)
 
-        board = self.generate_solution()
+        best_board = None
+        best_remaining = 81
 
-        self.remove_clues(board, target)
+        for _ in range(5):
+            board = self.generate_solution()
+            remaining = self.remove_clues(board, target)
 
-        return board
+            if remaining == target:
+                return board
+
+            if remaining < best_remaining:
+                best_board = board
+                best_remaining = remaining
+
+        return best_board
 
     @staticmethod
     def has_unique_solution(board: SodokuBoard):
