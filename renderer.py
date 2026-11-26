@@ -28,19 +28,19 @@ class SodokuRenderer:
     def draw_crosshair(self):
         col, row = self.board.get_active_cell()
 
-        # Horizontal Crosshair
+        # Vertical Crosshair
         h_top_left = pg.Vector2((col * self.cell_size) + self.offset,
                                 self.offset)
-        h_size = pg.Vector2(self.cell_size, self.board_length - MARGIN)
+        h_size = pg.Vector2(self.cell_size, self.cell_size * 9)
 
         pg.draw.rect(surface=self.screen,
                      color=CROSSHAIR,
                      rect=pg.Rect(h_top_left, h_size))
 
-        # Vertical Crosshair
+        # Horizontal Crosshair
         v_top_left = pg.Vector2(self.offset,
                                 (row * self.cell_size) + self.offset)
-        v_size = pg.Vector2(self.board_length - MARGIN, self.cell_size)
+        v_size = pg.Vector2(self.cell_size * 9, self.cell_size)
 
         pg.draw.rect(surface=self.screen,
                      color=CROSSHAIR,
@@ -132,10 +132,9 @@ class SodokuRenderer:
                     True,
                     GIVEN if self.board.is_cell_given(col, row) else INPUT
                 )
-                text_location = pg.Vector2((col + 0.5) * self.cell_size +
-                                           BOARD_BORDER,
-                                           (row + 0.5) * self.cell_size)
-                self.screen.blit(text, text_location)
+                center = (self.offset + (col + 0.5) * self.cell_size,
+                          self.offset + (row + 0.5) * self.cell_size)
+                self.screen.blit(text, text.get_rect(center=center))
 
     def get_board_coordinates(self, pos):
         col = (pos[0] - self.offset) // self.cell_size
@@ -182,10 +181,21 @@ class SodokuRenderer:
                                       self.cell_size,
                                       self.cell_size))
 
+    def is_solved(self):
+        return (all(self.board.get_cell(col, row) in range(1, 10)
+                    for row in range(9) for col in range(9))
+                and not self.find_conflicts())
+
     def draw(self, flag_conflicts=True):
         self.screen.fill(BACKGROUND)
 
-        if self.board.cell_active():
+        if self.is_solved():
+            pg.draw.rect(
+                surface=self.screen,
+                color=(198, 239, 206),
+                rect=pg.Rect(self.offset, self.offset,
+                             self.cell_size * 9, self.cell_size * 9))
+        elif self.board.cell_active():
             self.draw_crosshair()
             self.draw_matching_numbers()
             self.draw_active_cell()
