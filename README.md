@@ -62,26 +62,8 @@ The following extensions build on the four core solvers but are documented separ
 * A Logic + MRV hybrid that uses search only when logical deductions stall.
 * Six simultaneous solver views, including the two additional logical approaches, with adjustable animation speed and step-by-step playback.
 
-## 3\. Division of Labor
 
-|Component|Contributors|
-|-|-|
-|Presentation|Lorraine Amistad, Zara Mubin, John Lloyd Tungol|
-|Human Logic Checker|Diego Tagle, John Lloyd Tungol, Ken Nicolai Flores|
-|Game UI|Lorraine Amistad, Zara Mubin, Ken Nicolai Flores|
-|Main Game Loop|Ken Nicolai Flores|
-|Testers and Benchmarking|Ken Nicolai Flores|
-|Standard Backtracking|Ken Nicolai Flores|
-|Bitmask Backtracking|Ken Nicolai Flores|
-|Bitmask + MRV|Ken Nicolai Flores|
-|Knuth's Algorithm X / Dancing Links|Ken Nicolai Flores|
-|Puzzle Generator|Ken Nicolai Flores|
-|Difficulty Allocator|Ken Nicolai Flores|
-|All other project implementation|Ken Nicolai Flores|
-
-A standalone division-of-labor document is provided separately as `DIVISION\_OF\_LABOR.md`.
-
-## 4\. Installation and Usage
+## 3\. Installation and Usage
 
 ### Requirements
 
@@ -116,7 +98,7 @@ By default, `main.py` generates an expert puzzle, prints its clue count and uniq
 
 The comparison always starts from the original puzzle, not the player's current entries. Green outlines in the comparison indicate placements or deductions, while red outlines indicate undo operations. The displayed benchmark solve time is measured separately from the animation.
 
-## 5\. Project Structure
+## 4\. Project Structure
 
 |File|Responsibility|
 |-|-|
@@ -134,11 +116,11 @@ The comparison always starts from the original puzzle, not the player's current 
 
 The project separates game presentation from board operations and solver logic. Each search solver receives an independent puzzle state so that the algorithms can be compared on the same input without changing the player's board.
 
-## 6\. Why These Four Algorithms?
+## 5\. Why These Four Algorithms?
 
 We selected the four core search algorithms because they demonstrate distinct ways of improving the same problem. The first three form a progression from a basic recursive search to faster constraint checking and then a more selective search order. The fourth reformulates Sudoku as an exact cover problem.
 
-### 6.1 Standard Backtracking
+### 5.1 Standard Backtracking
 
 **Implementation:** `backtrack.py`
 
@@ -148,7 +130,7 @@ The solver finds the first empty cell in row-major order and tries digits 1–9.
 
 **Limitation:** Repeated constraint scans and a fixed cell-selection order can result in a large number of unnecessary attempts. The search has exponential worst-case growth in the number of empty cells.
 
-### 6.2 Bitmask Backtracking
+### 5.2 Bitmask Backtracking
 
 **Implementation:** `bitmask_backtrack.py`
 
@@ -167,7 +149,7 @@ The lowest available bit is extracted with `available \& -available`. Placing or
 
 **Limitation:** It still selects the first empty cell, so it can explore the same search tree as standard backtracking. Bitmasking primarily reduces the work performed at each recursive call rather than the number of calls.
 
-### 6.3 Bitmask + Minimum Remaining Values (MRV)
+### 5.3 Bitmask + Minimum Remaining Values (MRV)
 
 **Implementation:** `bitmask_mrv_backtrack.py`
 
@@ -179,7 +161,7 @@ This follows a fail-first strategy: solve the most constrained cells earlier, re
 
 **Limitation:** Selecting a cell requires examining candidate counts across the board, adding overhead at each recursion. MRV is a heuristic, not a guarantee of the smallest possible search tree.
 
-### 6.4 Knuth's Algorithm X with Dancing Links (DLX)
+### 5.4 Knuth's Algorithm X with Dancing Links (DLX)
 
 **Implementation:** `knuth.py`
 
@@ -201,7 +183,7 @@ The implementation uses circular doubly linked lists. Applying a given covers it
 
 **Limitation:** It is the most complex of the four implementations and requires more initialization and object storage. A fast search does not necessarily mean the fastest total runtime once matrix construction is included.
 
-## 7\. Testing and Benchmark Methodology
+## 6\. Testing and Benchmark Methodology
 
 The game benchmarks each approach on an independent copy of the same original puzzle using `time.perf\_counter\_ns()`. Timing is measured without the animation instrumentation and reported in milliseconds.
 
@@ -262,7 +244,7 @@ The four search solvers were also tested independently with fresh board states a
 
 All counts agreed with the expected results. A duplicate-clue grid (the 30-clue example with R1C3 set to 5) was also rejected by `DifficultyRater.valid\_grid()`, the validation method used before benchmarking. This does not imply that every solver independently validates malformed input; valid givens are assumed by the core search routines. These additional checks were performed externally on the submitted modules without modifying the source or running the GUI.
 
-## 8\. Results and Conclusion: Which Algorithm Is Best?
+## 7\. Results and Conclusion: Which Algorithm Is Best?
 
 The results demonstrate that reducing the number of search branches can have a greater impact than simply making each recursive operation faster. Standard Backtracking and Bitmask Backtracking made identical numbers of recursive calls and backtracks on both examples, but the bitmask version was faster because its constraint checks were cheaper. Adding MRV drastically reduced the search tree itself.
 
@@ -279,9 +261,9 @@ The results demonstrate that reducing the number of search branches can have a g
 
 There is no universally fastest algorithm for all Sudoku instances. Our project illustrates the trade-off between computational cost, initialization overhead, search pruning, implementation complexity, and interpretability.
 
-## 9\. Additional Features and Extensions
+## 8\. Additional Features and Extensions
 
-### 9.1 Human-Style Logic and Hybrid Solving
+### 8.1 Human-Style Logic and Hybrid Solving
 
 A computationally fast solution is not necessarily a useful explanation for a person. We implemented a separate logical solver to identify deductions a human could make without guessing. The solver maintains candidate sets and repeatedly applies techniques in increasing order of complexity, restarting from the simplest technique after each successful deduction.
 
@@ -295,7 +277,7 @@ The logical difficulty is based on the hardest technique required, not the numbe
 
 The **Logic + MRV hybrid** first applies the same deductions. If the logical solver stalls, it passes the partially completed board to Bitmask + MRV to finish the remaining cells. The fallback retains logical placements, although it recomputes bitmask candidates instead of carrying forward all candidate eliminations. This combines explainable deductions with the ability to complete puzzles beyond the implemented human techniques.
 
-### 9.2 Puzzle Generation and Difficulty Allocation
+### 8.2 Puzzle Generation and Difficulty Allocation
 
 The generator produces a valid completed Sudoku grid by filling the three diagonal 3×3 boxes with shuffled digits, then recursively filling the remaining cells in row-major order while shuffling the candidate digits.
 
@@ -316,11 +298,11 @@ It then performs the following steps:
 
 Clue count is a practical way to control generation, but it is only an approximate difficulty indicator. A puzzle with fewer clues may still be solvable using simple deductions, while another puzzle with more clues may require advanced techniques. The human-logic rating is reported separately; generation does not enforce a particular human-logic rating.
 
-### 9.3 Extended Visualization
+### 8.3 Extended Visualization
 
 The core comparison is extended to six approaches by adding the Logical Solver and Logic + MRV. Each panel runs from an independent copy of the original puzzle and consumes events from its own bounded queue. Solver work is performed in background threads while rendering remains on the main thread. Users can pause, change speed and advance the animations one event at a time. Animation timings are not used for the performance comparison.
 
-## 10\. Limitations and Future Improvements
+## 9\. Limitations and Future Improvements
 
 * Run benchmarks on a larger, fixed collection of puzzles and report distributions rather than relying on individual examples.
 * Extend human-style deductions and generate puzzles that satisfy a desired logic-based difficulty rating.
