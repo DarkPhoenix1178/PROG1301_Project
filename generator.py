@@ -1,7 +1,7 @@
 import copy
 import random
 
-from board import SodokuBoard
+from board import SudokuBoard
 from settings import (
     DIFFICULTY_CLUES,
     MIN_CLUES,
@@ -11,11 +11,11 @@ from settings import (
 from knuth import DancingLinks
 
 
-class SodokuGenerator:
+class SudokuGenerator:
     def __init__(self, seed=None):
         self.rng = random.Random(seed)
 
-    def fill_diagonal(self, board: SodokuBoard):
+    def fill_diagonal(self, board: SudokuBoard):
         for box in range(3):
             numbers = list(range(1, 10))
             self.rng.shuffle(numbers)
@@ -26,7 +26,7 @@ class SodokuGenerator:
 
                 board.set_cell(col, row, num)
 
-    def fill_board(self, board: SodokuBoard):
+    def fill_board(self, board: SudokuBoard):
         for row in range(9):
             for col in range(9):
                 if board.get_cell(col, row) != 0:
@@ -47,16 +47,16 @@ class SodokuGenerator:
         return True
 
     def generate_solution(self):
-        board = SodokuBoard([[0] * 9 for _ in range(9)])
+        board = SudokuBoard([[0] * 9 for _ in range(9)])
 
         self.fill_diagonal(board)
 
         if self.fill_board(board):
-            return SodokuBoard(board.board)
+            return SudokuBoard(board.board)
 
         return self.fallback_puzzle(81)
 
-    def remove_clues(self, board: SodokuBoard, target):
+    def remove_clues(self, board: SudokuBoard, target):
         cells = [(col, row) for row in range(9) for col in range(9)]
 
         self.rng.shuffle(cells)
@@ -87,14 +87,14 @@ class SodokuGenerator:
             remaining = self.remove_clues(board, target)
 
             if remaining == target:
-                return SodokuBoard(board.board)
+                return SudokuBoard(board.board)
 
             if remaining < best_remaining:
                 best_board = board
                 best_remaining = remaining
 
         if low <= best_remaining <= high:
-            return SodokuBoard(best_board.board)
+            return SudokuBoard(best_board.board)
 
         return self.fallback_puzzle(target)
 
@@ -161,7 +161,7 @@ class SodokuGenerator:
     def fallback_puzzle(self, target):
         puzzle = copy.deepcopy(self.rng.choice(FALLBACK_PUZZLES))
 
-        solver = DancingLinks(SodokuBoard(puzzle))
+        solver = DancingLinks(SudokuBoard(puzzle))
         solution, _, _ = solver.search_solution()
 
         self.rng.shuffle(solution)
@@ -171,14 +171,11 @@ class SodokuGenerator:
 
         puzzle = self.randomize_puzzle(puzzle)
 
-        return SodokuBoard(puzzle)
+        return SudokuBoard(puzzle)
 
     @staticmethod
-    def has_unique_solution(board: SodokuBoard):
+    def has_unique_solution(board: SudokuBoard):
         solver = DancingLinks(board)
         count, _, _ = solver.search_n_solutions(limit=2)
 
         return count == 1
-
-
-

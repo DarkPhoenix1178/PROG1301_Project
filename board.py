@@ -1,7 +1,7 @@
 import copy
 
 
-class SodokuBoard:
+class SudokuBoard:
     def __init__(self, grid):
         self.original = grid
         self.board = copy.deepcopy(self.original)

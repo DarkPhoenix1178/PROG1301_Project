@@ -1,6 +1,4 @@
-from tkinter import constants
-
-from board import SodokuBoard
+from board import SudokuBoard
 
 
 class Node:
@@ -79,7 +77,7 @@ class ColumnHeader(Node):
 
 
 class DancingLinks:
-    def __init__(self, matrix: SodokuBoard):
+    def __init__(self, matrix: SudokuBoard):
         self.matrix = matrix
 
         self.headers = {}
@@ -139,7 +137,7 @@ class DancingLinks:
         ]
         for key in constraints:
             if key in self.covered:
-                raise ValueError(f"Conflicting Sodoku Clue: {key}")
+                raise ValueError(f"Conflicting Sudoku Clue: {key}")
 
         for key in constraints:
             self.headers[key].cover()

@@ -1,5 +1,5 @@
-from game import Sodoku
-from generator import SodokuGenerator
+from game import Sudoku
+from generator import SudokuGenerator
 
 
 def main():
@@ -25,8 +25,8 @@ def main():
         [0, 6, 0, 9, 5, 0, 0, 4, 0],
         [0, 0, 0, 0, 0, 0, 0, 0, 0],
     ]
-    # game = Sodoku(puzzle).run()
-    # game2 = Sodoku(multi_puzzle).run()
+    # game = Sudoku(puzzle).run()
+    # game2 = Sudoku(multi_puzzle).run()
 
     hard_puzzle = [
         [1, 0, 0, 0, 0, 7, 0, 9, 0],
@@ -51,10 +51,10 @@ def main():
         [0, 0, 0, 8, 0, 6, 0, 0, 0],
     ]
 
-    # Sodoku(SodokuGenerator().generate_solution()).run()
-    # game2 = Sodoku(expert_puzzle).run()
+    # Sudoku(SudokuGenerator().generate_solution()).run()
+    # game2 = Sudoku(expert_puzzle).run()
 
-    generator = SodokuGenerator()
+    generator = SudokuGenerator()
     board = generator.generate_puzzle("expert")
 
     print("\n".join(map(str, board.board)))
@@ -64,7 +64,7 @@ def main():
     print(f"Clues: {clues}")
     print(f"Unique: {generator.has_unique_solution(board)}")
 
-    game = Sodoku(board.board).run()
+    game = Sudoku(board.board).run()
 
 
 if __name__ == "__main__":

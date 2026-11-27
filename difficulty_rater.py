@@ -1,7 +1,7 @@
 import copy
 from itertools import combinations
 
-from board import SodokuBoard
+from board import SudokuBoard
 from knuth import DancingLinks
 from settings import DIFFICULTY_CLUES, MIN_CLUES
 
@@ -9,7 +9,7 @@ from settings import DIFFICULTY_CLUES, MIN_CLUES
 class DifficultyRater:
     # Make a copy of the board so the real one doesn't change.
     # work and candidates get filled in later.
-    def __init__(self, board: SodokuBoard):
+    def __init__(self, board: SudokuBoard):
         self.board = copy.deepcopy(board)
 
         self.work = None

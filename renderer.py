@@ -1,12 +1,15 @@
 import pygame as pg
 
-from board import SodokuBoard
+from board import SudokuBoard
 from settings import MARGIN, BOARD_BORDER, \
     BACKGROUND, CROSSHAIR, SELECT, SIMILAR, GIVEN, INPUT, BORDER, ERROR
 
 
-class SodokuRenderer:
-    def __init__(self, screen: pg.Surface, board: SodokuBoard, compact=False):
+class SudokuRenderer:
+    def __init__(self,
+                 screen: pg.Surface,
+                 board: SudokuBoard,
+                 compact=False):
         self.screen = screen
         self.board = board
         self.compact = compact
@@ -219,7 +222,7 @@ class SodokuRenderer:
         self.panels = []
         for animation in animations:
             surface = pg.Surface((self.panel_size, self.panel_size))
-            renderer = SodokuRenderer(surface, animation.board, compact=True)
+            renderer = SudokuRenderer(surface, animation.board, compact=True)
             self.panels.append((animation, surface, renderer))
         self.heading_font = pg.font.SysFont(None, 25)
         self.label_font = pg.font.SysFont(None, 19)
@@ -236,8 +239,10 @@ class SodokuRenderer:
                 if animation.board.get_cell(col, row) != 0:
                     continue
                 for num in animation.candidates[row][col]:
-                    x = renderer.offset + col * size + ((num - 1) % 3 + .5) * size / 3
-                    y = renderer.offset + row * size + ((num - 1) // 3 + .5) * size / 3
+                    x = renderer.offset + col * size + \
+                        ((num - 1) % 3 + .5) * size / 3
+                    y = renderer.offset + row * size + \
+                        ((num - 1) // 3 + .5) * size / 3
                     text = self.candidate_font.render(str(num), True, GIVEN)
                     surface.blit(text, text.get_rect(center=(x, y)))
 
@@ -253,7 +258,8 @@ class SodokuRenderer:
         state = "Finished" if done else "Paused" if paused else "Running"
         label("Sudoku Solver Comparison", (width // 2, 15),
               self.heading_font, BORDER)
-        label(f"{state} | {speed} steps/frame | Space: pause | Up/Down: speed | "
+        label(f"{state} | {speed} steps/frame | "
+              f"Space: pause | Up/Down: speed | "
               "Right: step | F1: restart | Esc: return",
               (width // 2, 36), self.info_font)
 
@@ -275,10 +281,14 @@ class SodokuRenderer:
             info_y = y + 20 + self.panel_size
             label(f"{animation.status} | Steps: {animation.steps:,}",
                   (center, info_y + 8), self.info_font)
-            label(animation.last_action, (center, info_y + 23), self.info_font, INPUT)
-            remaining = sum(num == 0 for row in animation.board.board for num in row)
-            details = (f"Remaining: {remaining} | No guessing" if animation.candidates is not None
-                       else f"Remaining: {remaining} | Undos: {animation.backtracks:,}")
+            label(animation.last_action,
+                  (center, info_y + 23), self.info_font, INPUT)
+            remaining = sum(
+                num == 0 for row in animation.board.board for num in row)
+            details = (f"Remaining: {remaining} | No guessing" if
+                       animation.candidates is not None
+                       else f"Remaining: {remaining} | Undos: "
+                            f"{animation.backtracks:,}")
             label(details, (center, info_y + 38), self.info_font)
             label(f"Benchmark solve: {animation.benchmark['solve']:.3f} ms",
                   (center, info_y + 53), self.info_font)
