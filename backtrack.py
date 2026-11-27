@@ -1,10 +1,10 @@
 import copy
 
-from board import SodokuBoard
+from board import SudokuBoard
 
 
-class SodokuBacktrackingSolver:
-    def __init__(self, board: SodokuBoard):
+class SudokuBacktrackingSolver:
+    def __init__(self, board: SudokuBoard):
         self.board = copy.deepcopy(board)
         self.solution = []
         self.recursive_calls = 0

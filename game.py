@@ -1,41 +1,267 @@
 import copy
 import time
+from queue import Empty, Full, Queue
+from threading import Event, Thread
 
-from backtrack import SodokuBacktrackingSolver
+import pygame as pg
+
+from backtrack import SudokuBacktrackingSolver
 from knuth import DancingLinks
 from bitmask_backtrack import BitmaskBacktracker
 from bitmask_mrv_backtrack import BitmaskMRVBacktracker
-from board import SodokuBoard
+from board import SudokuBoard
 from difficulty_rater import DifficultyRater
-import pygame as pg
-
-from renderer import SodokuRenderer
-from settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS
+from renderer import SudokuRenderer
+from settings import SCREEN_WIDTH, SCREEN_HEIGHT, FPS, SOLVE_DELAY
 
 
-class Sodoku:
+SOLVERS = [
+    ("Backtracking", SudokuBacktrackingSolver),
+    ("Bitmask", BitmaskBacktracker),
+    ("Bitmask + MRV", BitmaskMRVBacktracker),
+    ("Knuth (DLX)", DancingLinks),
+    ("Logical Solver", DifficultyRater),
+    ("Logic + MRV", DifficultyRater),
+]
+
+
+class AnimationCancelled(Exception):
+    pass
+
+
+class SolutionTrace(list):
+    """Observe the existing solver's placement/undo operations."""
+
+    def __init__(self, publish, backtracking=False):
+        super().__init__()
+        self.publish = publish
+        self.backtracking = backtracking
+
+    def append(self, item):
+        if self.backtracking:
+            # Ordinary backtracking already emits four-element events.
+            # It never reads its trace during solve(), so do not retain it.
+            self.publish(("move", *item))
+        else:
+            super().append(item)
+            self.publish(("move", 1, *item))
+
+    def pop(self, index=-1):
+        item = super().pop(index)
+        self.publish(("move", 0, *item))
+        return item
+
+
+def solve_hybrid(rater, publish=None):
+    """Try logic first; finish with MRV only if logic stalls."""
+    logic = rater.rate(validate=False)
+    status = logic["status"].capitalize()
+    calls = backtracks = search_steps = 0
+    logic["fallback_used"] = logic["status"] == "stalled"
+
+    if logic["fallback_used"]:
+        # Keep all logical placements, and search only the remaining cells.
+        board = SudokuBoard(copy.deepcopy(rater.work.board))
+        solver = BitmaskMRVBacktracker(board)
+
+        if publish is not None:
+            publish(("fallback",))
+            solver.solution = SolutionTrace(publish)
+
+        solution, calls, backtracks = solver.search_solution()
+        search_steps = calls - 1 + backtracks
+
+        if solution:
+            rater.work.board = copy.deepcopy(solver.board.board)
+            status = "Solved"
+        else:
+            status = "Unsolvable"
+
+    logic["fallback_calls"] = calls
+    logic["fallback_backtracks"] = backtracks
+    logic["fallback_steps"] = search_steps
+    return logic, status, calls, backtracks, logic["steps"] + search_steps
+
+
+class AnimatedRater(DifficultyRater):
+    """Capture each successful deduction without changing its algorithm."""
+
+    def __init__(self, board, publish):
+        super().__init__(board)
+        self.publish = publish
+
+    def techniques(self):
+        def observe(name, technique):
+            def step():
+                if not technique():
+                    return False
+                self.publish(("logic", name, copy.deepcopy(self.work.board),
+                              copy.deepcopy(self.candidates)))
+                return True
+            return step
+
+        return [(name, level, observe(name, technique))
+                for name, level, technique in super().techniques()]
+
+
+class SolverAnimation:
+    """One independent solver, with a bounded queue of real search events."""
+
+    def __init__(self, name, solver_class, puzzle, benchmark):
+        self.name = name
+        self.board = SudokuBoard(copy.deepcopy(puzzle))
+        self.board.active_cell = None
+        self.solver_class = solver_class
+        self.benchmark = benchmark
+        self.events = Queue(maxsize=128)
+        self.cancel = Event()
+        self.status = "Searching"
+        self.steps = 0
+        self.backtracks = 0
+        self.last_action = "Ready"
+        self.changed = []
+        self.undo = False
+        self.candidates = None
+        if solver_class is DifficultyRater:
+            rater = DifficultyRater(self.board)
+            rater.work = copy.deepcopy(self.board)
+            rater.make_candidates()
+            self.candidates = rater.candidates
+        self.thread = Thread(target=self.solve, daemon=True)
+        self.thread.start()
+
+    def publish(self, event):
+        while not self.cancel.is_set():
+            try:
+                self.events.put(event, timeout=0.05)
+                return
+            except Full:
+                continue
+        raise AnimationCancelled
+
+    def solve(self):
+        try:
+            board = SudokuBoard(copy.deepcopy(self.board.original))
+            if self.solver_class is DifficultyRater:
+                solver = AnimatedRater(board, self.publish)
+                if self.name == "Logic + MRV":
+                    _, status, _, _, _ = solve_hybrid(solver, self.publish)
+                else:
+                    logic = solver.rate(validate=False)
+                    status = logic["status"].capitalize()
+            else:
+                solver = self.solver_class(board)
+                ordinary = self.solver_class is SudokuBacktrackingSolver
+                solver.solution = SolutionTrace(self.publish, ordinary)
+                if ordinary:
+                    solved = solver.solve()
+                else:
+                    solution, _, _ = solver.search_solution()
+                    solved = bool(solution) or not any(
+                        0 in row for row in board.board)
+                status = "Solved" if solved else "Unsolvable"
+            self.publish(("done", status))
+        except AnimationCancelled:
+            pass
+        except Exception as error:
+            try:
+                self.publish(("done", f"Error: {error}"))
+            except AnimationCancelled:
+                pass
+
+    def advance(self):
+        if self.status != "Searching":
+            return
+        try:
+            event = self.events.get_nowait()
+        except Empty:
+            return
+
+        if event[0] == "done":
+            self.status = event[1]
+            if self.status == "Solved" and (
+                    any(0 in row for row in self.board.board)
+                    or not DifficultyRater.valid_grid(self.board.board)):
+                self.status = "Invalid result"
+            return
+
+        if event[0] == "fallback":
+            self.candidates = None
+            self.changed = []
+            self.undo = False
+            self.last_action = "MRV fallback"
+            return
+
+        self.steps += 1
+        if event[0] == "move":
+            _, action, col, row, num = event
+            self.board.set_cell(col, row, num if action else 0)
+            self.changed = [(col, row)]
+            self.undo = not action
+            self.backtracks += int(self.undo)
+            self.last_action = f"Place {num}" if action else f"Undo {num}"
+            if self.name == "Logic + MRV":
+                self.last_action = "MRV: " + self.last_action
+        else:
+            _, name, grid, candidates = event
+            placements = []
+            eliminations = []
+            for row in range(9):
+                for col in range(9):
+                    if grid[row][col] != self.board.get_cell(col, row):
+                        placements.append((col, row))
+                    elif candidates[row][col] != self.candidates[row][col]:
+                        eliminations.append((col, row))
+            self.board.board = grid
+            self.candidates = candidates
+            self.changed = placements or eliminations
+            self.last_action = name
+
+
+class Sudoku:
     def __init__(self, puzzle):
-        self.board = SodokuBoard(puzzle)
+        self.board = SudokuBoard(puzzle)
         self.running = True
+        self.solving = False
 
         pg.init()
-        pg.display.set_caption("Sodoku")
+        pg.display.set_caption("Sudoku")
         self.clock = pg.time.Clock()
         self.screen = pg.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.renderer = SudokuRenderer(self.screen, self.board)
 
-        self.renderer = SodokuRenderer(self.screen, self.board)
-
+        self.animations = []
+        self.paused = False
+        self.steps_per_frame = 20
+        self.last_step = pg.time.get_ticks()
         self.results = self.test_solvers()
 
     def handle_mouse(self, pos):
         self.board.set_active_cell(*self.renderer.get_board_coordinates(pos))
 
     def handle_keyboard(self, event):
+        if event.key == pg.K_F1:
+            self.start_comparison()
+            return
+
+        if self.solving:
+            if event.key == pg.K_ESCAPE:
+                self.stop_comparison()
+            elif event.key == pg.K_SPACE:
+                self.paused = not self.paused
+            elif event.key == pg.K_UP:
+                self.steps_per_frame = min(2000, self.steps_per_frame * 2)
+            elif event.key == pg.K_DOWN:
+                self.steps_per_frame = max(1, self.steps_per_frame // 2)
+            elif event.key == pg.K_RIGHT and self.paused:
+                for animation in self.animations:
+                    animation.advance()
+            return
+
         if not self.board.cell_active():
             return
 
         col, row = self.board.get_active_cell()
-
         directions = {
             pg.K_RIGHT: (1, 0),
             pg.K_d: (1, 0),
@@ -66,11 +292,58 @@ class Sodoku:
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 self.running = False
+                self.cancel_animations()
+                return
 
-            if event.type == pg.MOUSEBUTTONUP:
+            if event.type == pg.MOUSEBUTTONUP and not self.solving:
                 self.handle_mouse(event.pos)
             elif event.type == pg.KEYUP:
                 self.handle_keyboard(event)
+
+    def cancel_animations(self):
+        for animation in self.animations:
+            animation.cancel.set()
+        self.animations = []
+
+    def start_comparison(self):
+        self.cancel_animations()
+        self.solving = True
+        self.paused = False
+        self.last_step = pg.time.get_ticks()
+        self.animations = [
+            SolverAnimation(name, solver_class, self.board.original, result)
+            for (name, solver_class), result in zip(SOLVERS, self.results)
+        ]
+        width, height = pg.display.get_desktop_sizes()[0]
+        self.screen = pg.display.set_mode((min(1200, width - 40),
+                                           min(920, height - 80)))
+        self.comparison_renderer = SudokuRenderer(self.screen, self.board)
+        self.comparison_renderer.prepare_comparison(self.animations)
+
+    def stop_comparison(self):
+        self.cancel_animations()
+        self.solving = False
+        self.screen = pg.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.renderer = SudokuRenderer(self.screen, self.board)
+
+    def update_b_solve_animation(self):
+        if not self.solving or self.paused:
+            return
+
+        now = pg.time.get_ticks()
+        if now - self.last_step < SOLVE_DELAY:
+            return
+        self.last_step = now
+
+        # One event per solver per round. Drawing remains on the main thread.
+        deadline = time.perf_counter_ns() + 8_000_000
+        for _ in range(self.steps_per_frame):
+            for animation in self.animations:
+                animation.advance()
+            if time.perf_counter_ns() >= deadline:
+                break
+            if all(a.status != "Searching" for a in self.animations):
+                break
 
     def test_solvers(self):
         results = []
@@ -78,81 +351,57 @@ class Sodoku:
         if not DifficultyRater.valid_grid(puzzle):
             raise ValueError("Invalid Sudoku puzzle.")
 
-        solvers = [
-            ("Backtracking", SodokuBacktrackingSolver),
-            ("Bitmask", BitmaskBacktracker),
-            ("Bitmask + MRV", BitmaskMRVBacktracker),
-            ("Knuth (DLX)", DancingLinks),
-            ("Logical Solver", DifficultyRater),
-            ("Logic + MRV", DifficultyRater),
-        ]
-
-        for name, solver_class in solvers:
-            # Start with the same original givens for every solver.
-            board = SodokuBoard(copy.deepcopy(puzzle))
+        for name, solver_class in SOLVERS:
+            board = SudokuBoard(copy.deepcopy(puzzle))
             start = time.perf_counter_ns()
             solver = solver_class(board)
             build_time = (time.perf_counter_ns() - start) / 1e6
 
-            # SOLVE
             logical = solver_class is DifficultyRater
+            ordinary = solver_class is SudokuBacktrackingSolver
             logic = None
-            fallback_used = False
             start = time.perf_counter_ns()
-
             if logical:
-                # Do not include DLX uniqueness checking in logic's solve time.
-                logic = solver.rate(validate=False)
-                status = logic["status"].capitalize()
-                steps = logic["steps"]
-                calls = backtracks = None
-
                 if name == "Logic + MRV":
-                    calls = backtracks = 0
-                    if logic["status"] == "stalled":
-                        fallback_used = True
-                        remaining_board = SodokuBoard(solver.work.board)
-                        mrv = BitmaskMRVBacktracker(remaining_board)
-                        solution, calls, backtracks = mrv.search_solution()
-                        steps += calls - 1 + backtracks
-                        if solution:
-                            solver.work.board = mrv.board.board
-                            status = "Solved"
-                        else:
-                            status = "Unsolvable"
+                    logic, status, calls, backtracks, steps = solve_hybrid(
+                        solver)
+                else:
+                    logic = solver.rate(validate=False)
+                    status = logic["status"].capitalize()
+                    steps = logic["steps"]
+                    calls = backtracks = None
                 solved = status == "Solved"
-            elif solver_class is SodokuBacktrackingSolver:
+            elif ordinary:
                 solved = solver.solve()
                 calls = solver.recursive_calls
                 backtracks = solver.backtracks
             else:
                 solution, calls, backtracks = solver.search_solution()
                 solved = bool(solution) or not any(0 in row for row in puzzle)
-
             solve_time = (time.perf_counter_ns() - start) / 1e6
 
-            # Verify the actual result outside the timed search.
+            # Check the actual output, outside the timed solve.
             if logical:
                 grid = solver.work.board
-            elif solver_class is SodokuBacktrackingSolver:
+            elif ordinary:
                 grid = solver.board.board
-                steps = len(solver.solution)
                 status = "Solved" if solved else "Unsolvable"
+                steps = len(solver.solution)
             else:
                 grid = copy.deepcopy(puzzle)
                 for col, row, num in solution:
                     grid[row][col] = num
-                steps = calls - 1 + backtracks
                 status = "Solved" if solved else "Unsolvable"
+                steps = calls - 1 + backtracks
 
             remaining = sum(num == 0 for row in grid for num in row)
-            preserved = all(puzzle[r][c] == 0 or puzzle[r][c] == grid[r][c]
+            preserved = all(not puzzle[r][c] or puzzle[r][c] == grid[r][c]
                             for r in range(9) for c in range(9))
-            if (not preserved or not DifficultyRater.valid_grid(grid)
-                    or (solved and remaining)):
+            if not preserved or not DifficultyRater.valid_grid(grid) or (
+                    solved and remaining):
                 status = "Invalid result"
 
-            # RESET
+            # RESET: the rater has no reset method, so reconstruct it.
             start = time.perf_counter_ns()
             if logical:
                 solver = solver_class(board)
@@ -160,7 +409,7 @@ class Sodoku:
                 solver.reset()
             reset_time = (time.perf_counter_ns() - start) / 1e6
 
-            # COUNT SOLUTIONS (up to two)
+            # COUNT: neither logical mode implements solution counting.
             count = count_time = count_calls = count_backtracks = None
             if not logical:
                 start = time.perf_counter_ns()
@@ -170,95 +419,94 @@ class Sodoku:
                 count_time = (time.perf_counter_ns() - start) / 1e6
 
             results.append({
-                "name": name,
-                "build": build_time,
-                "solve": solve_time,
+                "name": name, "build": build_time, "solve": solve_time,
                 "total": build_time + solve_time,
-                "reset": reset_time,
-                "count": count_time,
-                "solutions": count,
-                "calls": calls,
-                "backtracks": backtracks,
+                "reset": reset_time, "count": count_time, "solutions": count,
+                "calls": calls, "backtracks": backtracks,
                 "count_calls": count_calls,
                 "count_backtracks": count_backtracks,
-                "status": status,
-                "remaining": remaining,
-                "steps": steps,
-                "logic": logic,
-                "fallback_used": fallback_used,
+                "status": status, "remaining": remaining,
+                "steps": steps, "logic": logic,
             })
 
-        # TABLE 1: EXECUTION TIMES
-        print("\n" + "=" * 94)
-        print("SUDOKU SOLVER BENCHMARK | EXECUTION TIMES (ms)")
-        print("=" * 94)
-        print(f"{'Algorithm':<20}{'Build':>12}{'Solve':>12}"
-              f"{'Build+Solve':>14}{'Reset':>12}{'Count':>12}"
-              f"{'Solutions*':>12}")
-        print("-" * 94)
+        def table(title, columns):
+            width = sum(col[1] for col in columns)
+            print("\n" + "=" * width)
+            print(title)
+            print("=" * width)
+            print("".join(f"{label:{'<' if i == 0 else '>'}{size}}"
+                          for i, (label, size, _, _) in enumerate(columns)))
+            print("-" * width)
+            for result in results:
+                values = []
+                for i, (_, size, key, fmt) in enumerate(columns):
+                    value = result[key]
+                    text = "N/A" if value is None else format(value, fmt)
+                    values.append(f"{text:{'<' if i == 0 else '>'}{size}}")
+                print("".join(values))
+            print("=" * width)
 
-        for r in results:
-            count = f"{r['count']:.4f}" if r["count"] is not None else "N/A"
-            solutions = (str(r["solutions"])
-                         if r["solutions"] is not None else "N/A")
-            print(f"{r['name']:<20}{r['build']:>12.4f}{r['solve']:>12.4f}"
-                  f"{r['total']:>14.4f}{r['reset']:>12.4f}"
-                  f"{count:>12}{solutions:>12}")
-        print("=" * 94)
-
-        # TABLE 2: SEARCH STATISTICS
-        print("\n" + "=" * 83)
-        print("SUDOKU SOLVER BENCHMARK | SEARCH STATISTICS")
-        print("=" * 83)
-        print(f"{'Algorithm':<20}{'Solve Calls':>15}{'Solve BT':>12}"
-              f"{'Count Calls':>18}{'Count BT':>18}")
-        print("-" * 83)
-
-        for r in results:
-            values = [r["calls"], r["backtracks"], r["count_calls"],
-                      r["count_backtracks"]]
-            values = [f"{v:,}" if v is not None else "N/A" for v in values]
-            print(f"{r['name']:<20}{values[0]:>15}{values[1]:>12}"
-                  f"{values[2]:>18}{values[3]:>18}")
-        print("=" * 83)
-
-        # TABLE 3: COMPLETION
-        print("\n" + "=" * 62)
-        print("SUDOKU SOLVER BENCHMARK | COMPLETION")
-        print("=" * 62)
-        print(f"{'Algorithm':<20}{'Status':>18}{'Steps':>12}{'Remaining':>12}")
-        print("-" * 62)
-        for r in results:
-            print(f"{r['name']:<20}{r['status']:>18}{r['steps']:>12,}"
-                  f"{r['remaining']:>12}")
-        print("=" * 62)
-
-        # TABLE 4: LOGICAL TECHNIQUES
+        table("SUDOKU SOLVER BENCHMARK | EXECUTION TIMES (ms)", [
+            ("Algorithm", 20, "name", "s"), ("Build", 12, "build", ".4f"),
+            ("Solve", 12, "solve", ".4f"), ("Build+Solve", 14, "total", ".4f"),
+            ("Reset", 12, "reset", ".4f"),
+            ("Count", 12, "count", ".4f"), ("Solutions*", 12, "solutions", "d"),
+        ])
+        table("SUDOKU SOLVER BENCHMARK | SEARCH STATISTICS", [
+            ("Algorithm", 20, "name", "s"), ("Solve Calls", 15, "calls", ",d"),
+            ("Solve BT", 12, "backtracks", ",d"),
+            ("Count Calls", 15, "count_calls", ",d"),
+            ("Count BT", 12, "count_backtracks", ",d"),
+        ])
+        table("SUDOKU SOLVER BENCHMARK | COMPLETION", [
+            ("Algorithm", 20, "name", "s"), ("Status", 18, "status", "s"),
+            ("Steps", 12, "steps", ",d"), ("Remaining", 12, "remaining", "d"),
+        ])
+        print("* Counts are capped at 2; 2 means multiple solutions.")
+        print("Search steps = placements + undos; "
+              "hybrid steps also include deductions.")
+        print("Hybrid search calls and backtracks "
+              "refer to the MRV fallback only.")
+        print("Both logical modes exclude DLX uniqueness validation; "
+              "reset rebuilds rater.")
         logic = results[-2]["logic"]
         hybrid = results[-1]["logic"]
-        print("\n" + "=" * 61)
-        print("SUDOKU SOLVER BENCHMARK | LOGICAL TECHNIQUES")
-        print("=" * 61)
-        print(f"{'Technique':<25}{'Logic':>18}{'Logic + MRV':>18}")
-        print("-" * 61)
-        for name, count in logic["techniques"].items():
-            print(f"{name:<25}{count:>18,}{hybrid['techniques'][name]:>18,}")
-        print("=" * 61)
+        print("\nSUDOKU LOGICAL SOLVER | DIFFICULTY ANALYSIS")
         print(f"Clues: {logic['clues']} | By clues: {logic['by_clues']}")
-        print(f"By human: {logic['by_human']} | Hardest: {logic['hardest'] or 'None'}")
-        print(f"Logical phase: {logic['status']} | Remaining: {logic['remaining']}")
-        print(f"MRV fallback used: {'Yes' if results[-1]['fallback_used'] else 'No'}")
-        print("* Solution counts are capped at 2; 2 means multiple solutions.")
-        print("Search steps count placements and undos; logical steps count deductions.")
-        print("Hybrid calls and backtracks refer to the bitmask + MRV fallback only.")
-        print("Logical modes skip uniqueness checking; reset reconstructs the rater.")
-
+        print(
+            f"By human: {logic['by_human']} | Hardest: {logic['hardest'] or 
+                                                        'None'}")
+        print(
+            f"Logical phase: {logic['status']} | Remaining: "
+            f"{logic['remaining']}")
+        print(f"{'Technique':<25}{'Applications':>15}")
+        for name, count in logic["techniques"].items():
+            print(f"{name:<25}{count:>15}")
+        print("\nSUDOKU HYBRID SOLVER | LOGIC + MRV")
+        print(
+            f"Logical phase: {hybrid['status']} | Remaining: "
+            f"{hybrid['remaining']}")
+        print(f"MRV fallback: {'Yes' if hybrid['fallback_used'] else 'No'}")
+        print(f"MRV calls: {hybrid['fallback_calls']:,} | "
+              f"MRV backtracks: {hybrid['fallback_backtracks']:,}")
+        print(f"MRV steps: {hybrid['fallback_steps']:,}")
+        print(f"Final status: {results[-1]['status']} | "
+              f"Remaining: {results[-1]['remaining']}")
         return results
 
     def run(self):
-        while self.running:
-            self.handle_events()
-            self.renderer.draw()
-            pg.display.flip()
-            self.clock.tick(FPS)
-        pg.quit()
+        try:
+            while self.running:
+                self.handle_events()
+                if not self.running:
+                    break
+                if self.solving:
+                    self.update_b_solve_animation()
+                    self.comparison_renderer.draw_comparison(
+                        self.paused, self.steps_per_frame)
+                else:
+                    self.renderer.draw()
+                pg.display.flip()
+                self.clock.tick(min(FPS, 60) if self.solving else FPS)
+        finally:
+            self.cancel_animations()

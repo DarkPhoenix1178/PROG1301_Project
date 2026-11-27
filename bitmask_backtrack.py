@@ -1,10 +1,10 @@
 import copy
 
-from board import SodokuBoard
+from board import SudokuBoard
 
 
 class BitmaskBacktracker:
-    def __init__(self, board: SodokuBoard):
+    def __init__(self, board: SudokuBoard):
         self.board = copy.deepcopy(board)
         self.row_masks = [0] * 9
         self.col_masks = [0] * 9

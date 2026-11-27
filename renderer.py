@@ -1,25 +1,31 @@
 import pygame as pg
 
-from board import SodokuBoard
-from settings import SCREEN_HEIGHT, SCREEN_WIDTH, MARGIN, BOARD_BORDER, \
+from board import SudokuBoard
+from settings import MARGIN, BOARD_BORDER, \
     BACKGROUND, CROSSHAIR, SELECT, SIMILAR, GIVEN, INPUT, BORDER, ERROR
 
 
-class SodokuRenderer:
-    def __init__(self, screen: pg.Surface, board: SodokuBoard):
+class SudokuRenderer:
+    def __init__(self,
+                 screen: pg.Surface,
+                 board: SudokuBoard,
+                 compact=False):
         self.screen = screen
         self.board = board
+        self.compact = compact
+        self.margin = 3 if compact else MARGIN
+        self.border = 3 if compact else BOARD_BORDER
 
-        self.board_length = (min(SCREEN_WIDTH, SCREEN_HEIGHT) -
-                             (MARGIN * 2) -
-                             (BOARD_BORDER * 2))
+        self.board_length = (min(screen.get_size()) -
+                             (self.margin * 2) -
+                             (self.border * 2))
         self.board_length -= self.board_length % 9
-        self.board_length += BOARD_BORDER * 2
+        self.board_length += self.border * 2
 
-        self.cell_size = (self.board_length - (BOARD_BORDER * 2)) // 9
+        self.cell_size = (self.board_length - (self.border * 2)) // 9
         self.box_size = self.cell_size * 3
 
-        self.offset = BOARD_BORDER + MARGIN
+        self.offset = self.border + self.margin
         self.board_end = self.offset + (self.cell_size * 9)
 
         self.font_size = int(self.cell_size * 0.9)
@@ -28,7 +34,7 @@ class SodokuRenderer:
     def draw_crosshair(self):
         col, row = self.board.get_active_cell()
 
-        # Vertical Crosshair
+        # Horizontal Crosshair
         h_top_left = pg.Vector2((col * self.cell_size) + self.offset,
                                 self.offset)
         h_size = pg.Vector2(self.cell_size, self.cell_size * 9)
@@ -37,7 +43,7 @@ class SodokuRenderer:
                      color=CROSSHAIR,
                      rect=pg.Rect(h_top_left, h_size))
 
-        # Horizontal Crosshair
+        # Vertical Crosshair
         v_top_left = pg.Vector2(self.offset,
                                 (row * self.cell_size) + self.offset)
         v_size = pg.Vector2(self.cell_size * 9, self.cell_size)
@@ -90,15 +96,16 @@ class SodokuRenderer:
         pg.draw.rect(
             surface=self.screen,
             color=BORDER,
-            rect=pg.Rect(MARGIN, MARGIN, self.board_length, self.board_length),
-            width=BOARD_BORDER,
-            border_radius=BOARD_BORDER * 2
+            rect=pg.Rect(self.margin, self.margin, self.board_length,
+                         self.board_length),
+            width=self.border,
+            border_radius=self.border * 2
         )
 
         # Draw Lines
         for line in range(1, 9):
-            line_width = (BOARD_BORDER // 2) if line % 3 == 0 \
-                else (BOARD_BORDER // 10)
+            line_width = max(2, self.border // 2) if line % 3 == 0 \
+                else max(1, self.border // 10)
 
             pos = self.offset + (self.cell_size * line)
 
@@ -189,7 +196,7 @@ class SodokuRenderer:
     def draw(self, flag_conflicts=True):
         self.screen.fill(BACKGROUND)
 
-        if self.is_solved():
+        if not self.compact and self.is_solved():
             pg.draw.rect(
                 surface=self.screen,
                 color=(198, 239, 206),
@@ -205,3 +212,83 @@ class SodokuRenderer:
 
         self.draw_board()
         self.draw_numbers()
+
+    def prepare_comparison(self, animations):
+        """Reuse the normal renderer on six smaller surfaces."""
+        width, height = self.screen.get_size()
+        self.panel_width = width // 3
+        self.panel_height = (height - 54) // 2
+        self.panel_size = min(self.panel_width - 12, self.panel_height - 78)
+        self.panels = []
+        for animation in animations:
+            surface = pg.Surface((self.panel_size, self.panel_size))
+            renderer = SudokuRenderer(surface, animation.board, compact=True)
+            self.panels.append((animation, surface, renderer))
+        self.heading_font = pg.font.SysFont(None, 25)
+        self.label_font = pg.font.SysFont(None, 19)
+        self.info_font = pg.font.SysFont(None, 16)
+        self.candidate_font = pg.font.SysFont(
+            None, max(8, self.panels[0][2].cell_size // 3))
+
+    def draw_candidates(self, surface, renderer, animation):
+        if animation.candidates is None:
+            return
+        size = renderer.cell_size
+        for row in range(9):
+            for col in range(9):
+                if animation.board.get_cell(col, row) != 0:
+                    continue
+                for num in animation.candidates[row][col]:
+                    x = renderer.offset + col * size + \
+                        ((num - 1) % 3 + .5) * size / 3
+                    y = renderer.offset + row * size + \
+                        ((num - 1) // 3 + .5) * size / 3
+                    text = self.candidate_font.render(str(num), True, GIVEN)
+                    surface.blit(text, text.get_rect(center=(x, y)))
+
+    def draw_comparison(self, paused, speed):
+        self.screen.fill(BACKGROUND)
+        width, _ = self.screen.get_size()
+
+        def label(text, center, font, color=GIVEN):
+            image = font.render(text, True, color)
+            self.screen.blit(image, image.get_rect(center=center))
+
+        done = all(a.status != "Searching" for a, _, _ in self.panels)
+        state = "Finished" if done else "Paused" if paused else "Running"
+        label("Sudoku Solver Comparison", (width // 2, 15),
+              self.heading_font, BORDER)
+        label(f"{state} | {speed} steps/frame | "
+              f"Space: pause | Up/Down: speed | "
+              "Right: step | F1: restart | Esc: return",
+              (width // 2, 36), self.info_font)
+
+        for i, (animation, surface, renderer) in enumerate(self.panels):
+            x = (i % 3) * self.panel_width
+            y = 50 + (i // 3) * self.panel_height
+            center = x + self.panel_width // 2
+            label(animation.name, (center, y + 9), self.label_font, BORDER)
+            renderer.draw(flag_conflicts=False)
+            self.draw_candidates(surface, renderer, animation)
+            for col, row in animation.changed:
+                rect = pg.Rect(renderer.offset + col * renderer.cell_size,
+                               renderer.offset + row * renderer.cell_size,
+                               renderer.cell_size, renderer.cell_size)
+                color = (190, 48, 48) if animation.undo else (30, 145, 90)
+                pg.draw.rect(surface, color, rect, width=2)
+            self.screen.blit(surface, (center - self.panel_size // 2, y + 20))
+
+            info_y = y + 20 + self.panel_size
+            label(f"{animation.status} | Steps: {animation.steps:,}",
+                  (center, info_y + 8), self.info_font)
+            label(animation.last_action,
+                  (center, info_y + 23), self.info_font, INPUT)
+            remaining = sum(
+                num == 0 for row in animation.board.board for num in row)
+            details = (f"Remaining: {remaining} | No guessing" if
+                       animation.candidates is not None
+                       else f"Remaining: {remaining} | Undos: "
+                            f"{animation.backtracks:,}")
+            label(details, (center, info_y + 38), self.info_font)
+            label(f"Benchmark solve: {animation.benchmark['solve']:.3f} ms",
+                  (center, info_y + 53), self.info_font)
